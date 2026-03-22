@@ -20,6 +20,7 @@ public class Main {
 //            System.out.println("i = " + i);
 //        }
 
+
         // 可选：设置日志存储方式（比如保存到文件或数据库）
         // AuditService.setLogSaver(auditLog -> {
         //     // 自定义存储逻辑

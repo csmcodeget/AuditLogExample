@@ -5,58 +5,72 @@ import java.lang.reflect.Modifier;
 import java.util.*;
 
 /**
- * 审计日志工具 - 最终版
- * 就这样了，不再改了
+ * 审计日志工具 - 泛型版本
  */
 public class AuditUtil {
 
-    // ==================== 新增 ====================
-    public static String getAddData(Object entity) {
-        return getAddData(entity, (Set<String>) null);
+    // ==================== 构建记录（新增/删除） ====================
+
+    /**
+     * 构建实体记录（所有非空字段）
+     */
+    public static <T> String buildRecord(T entity) {
+        return buildRecord(entity, (Set<String>) null);
     }
 
-    public static String getAddData(Object entity, String... includeFields) {
-        return getAddData(entity, toSet(includeFields));
+    /**
+     * 构建实体记录（只包含指定字段）- 可变参数
+     */
+    @SafeVarargs
+    public static <T> String buildRecord(T entity, String... includeFields) {
+        return buildRecord(entity, toSet(includeFields));
     }
 
-    public static String getAddData(Object entity, Set<String> includeFields) {
+    /**
+     * 构建实体记录（只包含指定字段）- Set
+     */
+    public static <T> String buildRecord(T entity, Set<String> includeFields) {
         if (entity == null) return "";
-        Map<String, Object> data = new LinkedHashMap<>();
+        Map<String, Object> snapshot = new LinkedHashMap<>();
         for (Field field : getAllFields(entity.getClass())) {
-            String name = field.getName();
-            if (includeFields != null && !includeFields.isEmpty() && !includeFields.contains(name)) continue;
+            String fieldName = field.getName();
+            if (includeFields != null && !includeFields.isEmpty() && !includeFields.contains(fieldName)) {
+                continue;
+            }
             field.setAccessible(true);
             try {
-                Object val = field.get(entity);
-                if (val != null) data.put(name, val);
-            } catch (IllegalAccessException e) { /* ignore */ }
+                Object value = field.get(entity);
+                if (value != null) {
+                    snapshot.put(fieldName, value);
+                }
+            } catch (IllegalAccessException e) {
+                // ignore
+            }
         }
-        return data.toString();
+        return snapshot.toString();
     }
 
-    // ==================== 删除 ====================
-    public static String getDeleteData(Object entity) {
-        return getAddData(entity);
+    // ==================== 构建变更（更新） ====================
+
+    /**
+     * 构建变更记录（所有变更字段）
+     */
+    public static <T> String buildChanges(T oldObj, T newObj) {
+        return buildChanges(oldObj, newObj, (Set<String>) null);
     }
 
-    public static String getDeleteData(Object entity, String... includeFields) {
-        return getAddData(entity, includeFields);
+    /**
+     * 构建变更记录（只包含指定字段的变更）- 可变参数
+     */
+    @SafeVarargs
+    public static <T> String buildChanges(T oldObj, T newObj, String... includeFields) {
+        return buildChanges(oldObj, newObj, toSet(includeFields));
     }
 
-    public static String getDeleteData(Object entity, Set<String> includeFields) {
-        return getAddData(entity, includeFields);
-    }
-
-    // ==================== 更新 ====================
-    public static String getUpdateData(Object oldObj, Object newObj) {
-        return getUpdateData(oldObj, newObj, (Set<String>) null);
-    }
-
-    public static String getUpdateData(Object oldObj, Object newObj, String... includeFields) {
-        return getUpdateData(oldObj, newObj, toSet(includeFields));
-    }
-
-    public static String getUpdateData(Object oldObj, Object newObj, Set<String> includeFields) {
+    /**
+     * 构建变更记录（只包含指定字段的变更）- Set
+     */
+    public static <T> String buildChanges(T oldObj, T newObj, Set<String> includeFields) {
         if (oldObj == null || newObj == null) return "";
         Map<String, String> changes = new LinkedHashMap<>();
         for (Field field : getAllFields(oldObj.getClass())) {
@@ -67,49 +81,38 @@ public class AuditUtil {
                 Object oldVal = field.get(oldObj);
                 Object newVal = field.get(newObj);
                 if (!Objects.equals(oldVal, newVal)) {
-                    changes.put(name, (oldVal == null ? "null" : oldVal) + "→" + (newVal == null ? "null" : newVal));
+                    changes.put(name, formatChange(oldVal, newVal));
                 }
             } catch (IllegalAccessException e) { /* ignore */ }
         }
         return changes.toString();
     }
 
-    // ==================== 通用 ====================
-    public static String getChangeData(Object oldObj, Object newObj) {
-        return getChangeData(oldObj, newObj, (Set<String>) null);
+    // ==================== 私有方法 ====================
+
+    private static String formatChange(Object oldVal, Object newVal) {
+        String oldStr = oldVal == null ? "null" : oldVal.toString();
+        String newStr = newVal == null ? "null" : newVal.toString();
+        return oldStr + "→" + newStr;
     }
 
-    public static String getChangeData(Object oldObj, Object newObj, String... includeFields) {
-        return getChangeData(oldObj, newObj, toSet(includeFields));
-    }
-
-    public static String getChangeData(Object oldObj, Object newObj, Set<String> includeFields) {
-        if (oldObj == null && newObj != null) return getAddData(newObj, includeFields);
-        if (oldObj != null && newObj == null) return getDeleteData(oldObj, includeFields);
-        if (oldObj != null && newObj != null) return getUpdateData(oldObj, newObj, includeFields);
-        return "";
-    }
-
-    // ==================== 私有 ====================
     private static List<Field> getAllFields(Class<?> clazz) {
         List<Field> fields = new ArrayList<>();
-        while (clazz != null && clazz != Object.class) {
-            for (Field f : clazz.getDeclaredFields()) {
-                int mod = f.getModifiers();
+        Class<?> current = clazz;
+        while (current != null && current != Object.class) {
+            for (Field field : current.getDeclaredFields()) {
+                int mod = field.getModifiers();
                 if (!Modifier.isStatic(mod) && !Modifier.isFinal(mod)) {
-                    fields.add(f);
+                    fields.add(field);
                 }
             }
-            clazz = clazz.getSuperclass();
+            current = current.getSuperclass();
         }
         return fields;
     }
 
     private static Set<String> toSet(String[] arr) {
-        return (arr == null || arr.length == 0) ? null : new HashSet<>(Arrays.asList(arr));
+        if (arr == null || arr.length == 0) return null;
+        return new HashSet<>(Arrays.asList(arr));
     }
-//    // 就这样用，别想太多
-//    String log = AuditUtil.getAddData(user);
-//    String log = AuditUtil.getUpdateData(oldUser, newUser, "name", "age");
-//    String log = AuditUtil.getChangeData(oldUser, newUser, Set.of("name", "age"));
 }
